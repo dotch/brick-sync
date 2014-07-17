@@ -1,0 +1,29 @@
+{
+  "name": "brick-sync",
+  "version": "0.0.0",
+  "homepage": "https://github.com/mozbrick/brick-sync",
+  "authors": [
+    "mozilla"
+  ],
+  "description": "A component to sync offline and online storage.",
+  "main": "src/brick-sync.html",
+  "keywords": [
+    "brick",
+    "webcomponents"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "brick-common": "*",
+    "platform": "Polymer/platform"
+  },
+  "devDependencies": {
+    "brick-storage-indexeddb": "mozbrick/brick-storage-indexeddb#~0.0.8"
+  }
+}

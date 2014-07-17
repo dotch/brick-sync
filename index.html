@@ -1,0 +1,41 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1, maximum-scale=1">
+    <title>brick-sync</title>
+
+    <!-- Importing Polyfill -->
+    <script src="bower_components/platform/platform.js"></script>
+
+
+    <link rel="import"
+         href="bower_components/brick-storage-indexeddb/src/brick-storage-indexeddb.html">
+    <link rel="import"
+          href="bower_components/brick-storage-parse/src/brick-storage-parse.html">
+
+    <!-- Importing Custom Elemenent -->
+    <link rel="import" href="src/brick-sync.html">
+  </head>
+  <body>
+
+    <brick-storage-indexeddb keyname="k" id="offline">
+    </brick-storage-indexeddb>
+    <brick-storage-parse keyname="k"
+                      restapikey="tI5To9viL2ygoURZFN7uTnh439XXqkSRk0xFRfLH"
+                           appid="Jex2pgGOUnZQHiSJOvbqUDoKO0qmJO948Rtcu4oy"
+                       classname="item"
+                              id="online">
+    </brick-storage-indexeddb>
+
+    <!-- Using Custom Element -->
+    <brick-sync online="online"
+               offline="offline">
+    </brick-sync>
+
+    <script>
+      window.bs = document.querySelector("brick-sync");
+    </script>
+
+  </body>
+</html>
