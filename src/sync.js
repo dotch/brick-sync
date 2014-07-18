@@ -56,8 +56,8 @@
         // success
         self.syncQueue.shift();
         self.resetBackoff();
-        if (!self.online) {self.online = true;}
-        if (!self.syncing) {self.syncing = true;}
+        self.online = true;
+        self.syncing = true;
         if (self.syncQueue.length) {
           // go next!
           self.retry();
@@ -90,8 +90,8 @@
       //   wait(backoff)
       //     then retry and increase backoff
       var self = this;
-      if (self.online) {self.online = false;}
-      if (self.syncing) {self.syncing = false;}
+      self.online = false;
+      self.syncing = false;
       if ("onLine" in navigator && !navigator.onLine) {
         // we are offline!
         var onlineHandler = function(){
@@ -206,8 +206,10 @@
         return this.ns.online;
       },
       set: function(newVal){
-        this.ns.online = newVal;
-        console.log("online", this.ns.online);
+        if (this.ns.online !== newVal) {
+          this.ns.online = newVal;
+          console.log("online", this.ns.online);
+        }
       }
     },
     'syncing': {
@@ -215,8 +217,10 @@
         return this.ns.syncing;
       },
       set: function(newVal){
-        this.ns.syncing = newVal;
-        console.log("syncing", this.ns.syncing, this.syncQueue.length);
+        if (this.ns.syncing !== newVal) {
+          this.ns.syncing = newVal;
+          console.log("syncing", this.ns.syncing, this.syncQueue.length);
+        }
       }
     }
   });
