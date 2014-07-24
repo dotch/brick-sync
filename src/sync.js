@@ -1,7 +1,6 @@
 (function() {
 
-  function SyncStore(onlineStorage, offlineStorage, options) {
-
+  function SyncStore(onlineStorage, offlineStorage) {
     this.onlineStorage = onlineStorage;
     this.offlineStorage = offlineStorage;
     if (!this.onlineStorage.hasAttribute("keyname") ||
@@ -23,6 +22,7 @@
     _wait: function(ms) {
       var self = this;
       return new Promise(function(resolve) {
+        // save reference to be able to cancel the timeout
         self.timeout = setTimeout(resolve, ms);
       });
     },
@@ -30,7 +30,9 @@
     resetBackoff: function() {
       // reset backoff time
       this.backoff = 2;
-      // cancel operation which are still waiting
+    },
+
+    clearTimeout: function() {
       if (this.timeout) {
         clearTimeout(this.timeout);
         this.timeout = null;
@@ -42,7 +44,11 @@
       //   if success
       //     remove operation from queue
       //     reset backoff
-      //     proceed with the next operation
+      //     set sync and online flag to true
+      //     if queue not empty
+      //       proceed with the next operation
+      //     else
+      //       set sync-flag to false
       //   else
       //     if network error
       //       handleNetworkError (backoff, etc)
@@ -52,30 +58,25 @@
       var self = this;
       var operation = self.syncQueue[0];
       var method = self.onlineStorage[operation.methodName];
-      method.call(self.onlineStorage,operation.param).then(function(res){
+      method.call(self.onlineStorage,operation.param).then(function(){
         // success
         self.syncQueue.shift();
         self.resetBackoff();
         self.online = true;
         self.syncing = true;
         if (self.syncQueue.length) {
-          // go next!
-          self.retry();
+          self.retry(); // go next!
         } else {
-          // done syncing
-          self.syncing = false;
+          self.syncing = false; // done syncing
         }
       }, function(e){
         if (e.constructor.name ==="NetworkError") {
-          // network error
           self.handleNetworkError();
         } else {
-          // other error
-          // remove this faulty operation so it does not block the others
+          // remove this faulty operation so it does not block
           // and go next!
           self.syncQueue.shift();
           if (self.syncQueue.length) {
-            // go next!
             self.retry();
           }
         }
@@ -83,24 +84,23 @@
     },
 
     handleNetworkError: function() {
-      // if definitely offline
+      // if definitely offline (!navigator.onLine)
       //   listen for back-online event
       //     then retry
       // else if possibly online
-      //   wait(backoff)
-      //     then retry and increase backoff
+      //   wait backoff time
+      //     then retry and increase backoff time
       var self = this;
       self.online = false;
       self.syncing = false;
       if ("onLine" in navigator && !navigator.onLine) {
-        // we are offline!
         var onlineHandler = function(){
           self.retry();
           window.removeEventListener(onlineHandler);
         };
         window.addEventListener("online",onlineHandler);
       } else {
-        // we may be online
+        // we may be online, keep retrying
         self._wait(self.backoff * 1000).then(function(){
           self.retry();
         });
@@ -109,83 +109,119 @@
       }
     },
 
-    // methodName can be
-    //  -insert
-    //  -set
-    //  -setMany
-    _onlineWrite: function(methodName, object) {
-      // if something is in queue
-      //   add request to queue
-      //   return info
-      // else
-      //   send online
-      //     if works
-      //       done
+    _write: function(methodName, param) {
+      // write to offlinestorage
+      //   then
+      //     if something is in queue
+      //       add request to queue
       //       return info
       //     else
-      //       if network error
-      //         add to queue and start the retry dance (handle network error)
-      //         return info
-      //       else
-      //         return the (data)error
+      //       send online
+      //         if success
+      //           return res
+      //         else
+      //           if network error
+      //             add request to queue
+      //             start the retry dance (handle network error)
+      //             return info
+      //           else
+      //             return the (data)error
       var self = this;
-      var fn = self.onlineStorage[methodName];
-      if (self.syncQueue.length) {
-        // add to queue if something is in sync queue
-        self.syncQueue.push({methodName: methodName, param: object});
-        return Promise.resolve("queued " + object[self.key] + " at position " + self.syncQueue.length);
-      } else {
-        // else send it online
-        return fn.call(self.onlineStorage, object).catch(function(e){
-          // error! check if data error or network error
-          if (e.constructor.name ==="NetworkError") {
-            // network is down.
-            // add query to queue.
-            // start retrying.
-            self.syncQueue.push({methodName: methodName, param: object});
-            self.handleNetworkError();
-            return "queued " + object[self.key] + " at position 1";
-          } else {
-            return e;
-          }
-        });
-      }
+      var fnOnline = self.onlineStorage[methodName];
+      var fnOffline = self.offlineStorage[methodName];
+      return fnOffline.call(self.offlineStorage, param).then(function(){
+        if (self.syncQueue.length) {
+          // add to queue if something is in sync queue
+          self.syncQueue.push({methodName: methodName, param: param});
+          return Promise.resolve("queued " + methodName + " at position " + self.syncQueue.length);
+        } else {
+          // else send it online
+          return fnOnline.call(self.onlineStorage, param).catch(function(e){
+            // error! check if data error or network error
+            if (e.constructor.name ==="NetworkError") {
+              // network is down.
+              // add query to queue and start retrying.
+              self.syncQueue.push({methodName: methodName, param: param});
+              self.handleNetworkError();
+              return "queued " + methodName + " at position 1";
+            } else {
+              return e;
+            }
+          });
+        }
+      });
+
     },
 
     insert: function (object) {
-      var self = this;
-      return this.offlineStorage.insert(object).then(function(key){
-        return self._onlineWrite("insert", object);
-      });
+      return this.write("insert", object);
     },
 
     set: function (object) {
-      var self = this;
-      return this.offlineStorage.set(object).then(function(key){
-        return self._onlineWrite("set", object);
-      });
+      return this.write("set", object);
     },
 
     setMany: function (objects) {
-      var self = this;
-      return this.offlineStorage.setMany(objects).then(function(key){
-        return self._onlineWrite("setMany", objects);
-      });
-    },
-
-    get: function (key) {
-      // get from queue, queue is most recent version!
-      // get online
-      // get offline
+      return this.write("setMany", objects);
     },
 
     remove: function (key) {
-      var self = this;
-      return self._awaitReady(self._remove, arguments);
+      return this.write("remove", key);
     },
 
+    clear: function () {
+      return this.write("clear");
+    },
+
+    // get: function (key) {
+    //   // if syncQueue > 0
+    //   //   if !syncing
+    //   //     return getOffline
+    //   //   else if syncing
+    //   //     if key in syncqueue
+    //   //       return getOffline/queue
+    //   //     else
+    //   //       getOnline
+    //   // else if syncQueue empty
+    //   //   getOnline
+    //   //      if success
+    //   //        return item
+    //   //      else
+    //   //        queue up get
+    //   //        return getOffline
+    //   //
+    //   // Note: usually it does not make sence to queue a get,
+    //   // because the result will not be returned to the user and
+    //   // does not change anything. but it can be used to test the online
+    //   // status if there is no other operation in the queue.
+    //   // so we queue up a get if it fails and the queue is empty.
+
+
+    //   var self = this;
+    //   return self.onlineStorage.get(key).catch(function(e){
+    //     if (e.constructor.name === "NetworkError") {
+    //       // network is down.
+    //       // get from offline storage.
+    //       return self.offlineStorage.get(key);
+    //     } else {
+    //       return e;
+    //     }
+    //   });
+    // },
+
+
+
     getMany: function(options) {
-      return this.onlineStorage.getMany(options);
+      var self = this;
+      return self.onlineStorage.getMany(options).catch(function(e){
+        if (e.constructor.name === "NetworkError") {
+          // network is down.
+          // get from offline storage.
+          return self.offlineStorage.getMany(options);
+        } else {
+          return e;
+        }
+      });
     },
 
     size: function() {
@@ -193,10 +229,7 @@
       return self._awaitReady(self._size);
     },
 
-    clear: function () {
-      var self = this;
-      return self._awaitReady(self._clear);
-    }
+
 
   };
 
@@ -221,6 +254,11 @@
           this.ns.syncing = newVal;
           console.log("syncing", this.ns.syncing, this.syncQueue.length);
         }
+      }
+    },
+    'queueSize': {
+      get: function() {
+        return this.syncQueue.length;
       }
     }
   });

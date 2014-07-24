@@ -4,7 +4,6 @@
 
   var BrickSyncElementPrototype = Object.create(HTMLElement.prototype);
 
-
   BrickSyncElementPrototype.attachedCallback = function () {
     this.offlineStorage = document.getElementById(this.getAttribute("offline"));
     this.onlineStorage = document.getElementById(this.getAttribute("online"));
