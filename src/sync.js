@@ -1,3 +1,9 @@
+// save every operation to the queue
+// retry = sync!
+// operations are done synchronous
+// add gets to offline
+
+
 (function() {
 
   function SyncStore(onlineStorage, offlineStorage) {
@@ -8,7 +14,7 @@
         this.onlineStorage.getAttribute("keyname") !== this.offlineStorage.getAttribute("keyname")) {
       throw new Error("online and offline storage have to use the same keyname!");
     }
-    this.key = this.onlineStorage.getAttribute("keyname");
+    this.keyname = this.onlineStorage.getAttribute("keyname");
     this.syncQueue = [];
     this.backoff = 2;
 
@@ -129,11 +135,16 @@
       var self = this;
       var fnOnline = self.onlineStorage[methodName];
       var fnOffline = self.offlineStorage[methodName];
+      var objKey;
+      if (param) {
+        objKey = param[self.keyname];
+      }
       return fnOffline.call(self.offlineStorage, param).then(function(){
         if (self.syncQueue.length) {
           // add to queue if something is in sync queue
           self.syncQueue.push({methodName: methodName, param: param});
-          return Promise.resolve("queued " + methodName + " at position " + self.syncQueue.length);
+          console.info("queued " + methodName + " at position " + self.syncQueue.length);
+          return objKey;
         } else {
           // else send it online
           return fnOnline.call(self.onlineStorage, param).catch(function(e){
@@ -142,8 +153,9 @@
               // network is down.
               // add query to queue and start retrying.
               self.syncQueue.push({methodName: methodName, param: param});
+              console.info("queued " + methodName + " at position " + self.syncQueue.length);
               self.handleNetworkError();
-              return "queued " + methodName + " at position 1";
+              return objKey;
             } else {
               return e;
             }
@@ -154,82 +166,147 @@
     },
 
     insert: function (object) {
-      return this.write("insert", object);
+      return this._write("insert", object);
     },
 
     set: function (object) {
-      return this.write("set", object);
+      return this._write("set", object);
     },
 
     setMany: function (objects) {
-      return this.write("setMany", objects);
+      return this._write("setMany", objects);
     },
 
     remove: function (key) {
-      return this.write("remove", key);
+      return this._write("remove", key);
     },
 
     clear: function () {
-      return this.write("clear");
+      return this._write("clear");
     },
 
-    // get: function (key) {
-    //   // if syncQueue > 0
-    //   //   if !syncing
-    //   //     return getOffline
-    //   //   else if syncing
-    //   //     if key in syncqueue
-    //   //       return getOffline/queue
-    //   //     else
-    //   //       getOnline
-    //   // else if syncQueue empty
-    //   //   getOnline
-    //   //      if success
-    //   //        return item
-    //   //      else
-    //   //        queue up get
-    //   //        return getOffline
-    //   //
-    //   // Note: usually it does not make sence to queue a get,
-    //   // because the result will not be returned to the user and
-    //   // does not change anything. but it can be used to test the online
-    //   // status if there is no other operation in the queue.
-    //   // so we queue up a get if it fails and the queue is empty.
+    get: function (key) {
+      // if syncQueue > 0
+      //   if syncing
+      //     if key in syncqueue
+      //       return getOffline/queue
+      //     else
+      //       getOnline
+      //         if success
+      //           return item
+      //         else
+      //           return getOffline (no queueing)
+      //   else if !syncing
+      //     return getOffline
+      // else if syncQueue empty
+      //   getOnline
+      //      if success
+      //        return item
+      //      else
+      //        queue up get
+      //        return getOffline
+      //
+      // Note: usually it does not make sence to queue a get,
+      // because the result will not be returned to the user and
+      // does not change anything. but it can be used to test the online
+      // status if there is no other operation in the queue.
+      // so we queue up a get if it fails and the queue is empty.
+      var self = this;
 
-
-    //   var self = this;
-    //   return self.onlineStorage.get(key).catch(function(e){
-    //     if (e.constructor.name === "NetworkError") {
-    //       // network is down.
-    //       // get from offline storage.
-    //       return self.offlineStorage.get(key);
-    //     } else {
-    //       return e;
-    //     }
-    //   });
-    // },
-
-
+      if (self.syncQueue.length > 0) {
+        if (self.syncing) {
+          if (false) {
+            // TODO
+            // get from queue
+          } else {
+            return self.onlineStorage.get(key).catch(function(e){
+              if (e.constructor.name ==="NetworkError") {
+                // network is down. but no need to queue up.
+                return self.offlineStorage.get(key);
+              } else {
+                return e;
+              }
+            });
+          }
+        } else {
+          return self.offlineStorage.get(key);
+        }
+      } else {
+        return self.onlineStorage.get(key).catch(function(e){
+          // error! check if data error or network error
+          if (e.constructor.name ==="NetworkError") {
+            // network is down.
+            // add query to queue and start retrying.
+            self.syncQueue.push({methodName: "get", param: key});
+            self.handleNetworkError();
+            return self.offlineStorage.get(key);
+          } else {
+            return e;
+          }
+        });
+      }
+    },
 
     getMany: function(options) {
+      // if syncQueue > 0
+      //   if syncing
+      //     // we could combine from queue and online here!
+      //     getOnline
+      //       if success
+      //         return items
+      //       else
+      //         return getOffline
+      //   else
+      //     return getOffline
+      // else
+      //   getOnline
+      //     if success
+      //       return items
+      //     else
+      //       queue up getMany
+      //       return getOffline
       var self = this;
-      return self.onlineStorage.getMany(options).catch(function(e){
-        if (e.constructor.name === "NetworkError") {
-          // network is down.
-          // get from offline storage.
-          return self.offlineStorage.getMany(options);
+      if (self.syncQueue.length > 0) {
+        if (self.syncing) {
+          // magic would be inserted here!
+          return self.onlineStorage.getMany(options).catch(function(e){
+            if (e.constructor.name ==="NetworkError") {
+              // network is down. but no need to queue up.
+              return self.offlineStorage.getMany(options);
+            } else {
+              return e;
+            }
+          });
         } else {
-          return e;
+          return self.offlineStorage.getMany(options);
         }
-      });
+        return self.offlineStorage.getMany(options);
+      } else {
+        return self.onlineStorage.getMany(options).catch(function(e){
+          // error! check if data error or network error
+          if (e.constructor.name ==="NetworkError") {
+            // network is down.
+            // add query to queue and start retrying.
+            self.syncQueue.push({methodName: "getMany", param: options});
+            self.handleNetworkError();
+            return self.offlineStorage.getMany(options);
+          } else {
+            return e;
+          }
+        });
+      }
     },
+
 
     size: function() {
+      // todod. make better!.
       var self = this;
-      return self._awaitReady(self._size);
+      if (self.online) {
+        return self.onlineStorage.size();
+      } else {
+        return self.offlineStorage.size();
+      }
     },
-
-
 
   };
 
@@ -241,7 +318,7 @@
       set: function(newVal){
         if (this.ns.online !== newVal) {
           this.ns.online = newVal;
-          console.log("online", this.ns.online);
+          console.info("online", this.ns.online);
         }
       }
     },
@@ -252,7 +329,7 @@
       set: function(newVal){
         if (this.ns.syncing !== newVal) {
           this.ns.syncing = newVal;
-          console.log("syncing", this.ns.syncing, this.syncQueue.length);
+          console.info("syncing", this.ns.syncing, this.syncQueue.length);
         }
       }
     },
