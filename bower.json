@@ -24,6 +24,7 @@
     "platform": "Polymer/platform"
   },
   "devDependencies": {
-    "brick-storage-indexeddb": "mozbrick/brick-storage-indexeddb#~0.0.8"
+    "brick-storage-indexeddb": "mozbrick/brick-storage-indexeddb#master",
+    "brick-storage-parse": "dotch/brick-storage-parse"
   }
 }
